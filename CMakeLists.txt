@@ -135,8 +135,8 @@ set(GEOGRAM_CMAKE_FLAGS -DGEOGRAM_INSTALL_PREFIX=${BUILD_DIR}/geogram_build -DGE
 if(AV_USE_CUDA AND AV_BUILD_CUDA)
 set(CUDA_TARGET cuda)
 ExternalProject_Add(${CUDA_TARGET}
-       URL https://developer.nvidia.com/compute/cuda/8.0/Prod2/local_installers/cuda_8.0.61_375.26_linux-run
-       # URL https://developer.nvidia.com/compute/cuda/9.2/Prod/local_installers/cuda_9.2.88_396.26_linux
+       # URL https://developer.nvidia.com/compute/cuda/8.0/Prod2/local_installers/cuda_8.0.61_375.26_linux-run
+       URL https://developer.nvidia.com/compute/cuda/9.2/Prod/local_installers/cuda_9.2.88_396.26_linux.run
        DOWNLOAD_NO_EXTRACT 1
        PREFIX ${BUILD_DIR}
        BUILD_IN_SOURCE 0
@@ -147,15 +147,42 @@ ExternalProject_Add(${CUDA_TARGET}
        INSTALL_DIR ${BUILD_DIR}/cuda_build
        CONFIGURE_COMMAND ""
        BUILD_COMMAND ""
-       INSTALL_COMMAND sh ${BUILD_DIR}/src/cuda_8.0.61_375.26_linux-run --silent --no-opengl-libs --toolkit --toolkitpath=<INSTALL_DIR>
+       # INSTALL_COMMAND sh ${BUILD_DIR}/src/cuda_8.0.61_375.26_linux-run --silent --no-opengl-libs --toolkit --toolkitpath=<INSTALL_DIR>
+       INSTALL_COMMAND sh ${BUILD_DIR}/src/cuda_9.2.88_396.26_linux.run --silent --no-opengl-libs --toolkit --toolkitpath=<INSTALL_DIR>
        )
 set(CUDA_CUDART_LIBRARY "")
 set(CUDA_CMAKE_FLAGS -DCUDA_TOOLKIT_ROOT_DIR=${BUILD_DIR}/cuda_build)
 else()
-  option(CUDA_TOOLKIT_ROOT_DIR "")
+  #option(CUDA_TOOLKIT_ROOT_DIR "CUDA head dir" CACHE STRING "")
+  set(CUDA_TOOLKIT_ROOT_DIR "" CACHE STRING "CUDA head dir")
   if(CUDA_TOOLKIT_ROOT_DIR)
     set(CUDA_CMAKE_FLAGS -DCUDA_TOOLKIT_ROOT_DIR=${CUDA_TOOLKIT_ROOT_DIR})
   endif()
+endif()
+
+SET(WITH_CUDA true CACHE BOOL "enable/disable CUDA - can cause problems with some pre-4.0 architecture CUDA implementations")
+if(WITH_CUDA)
+	FIND_PACKAGE(CUDA QUIET)
+	IF(${CUDA_FOUND})
+		MESSAGE( STATUS "Using CUDA NVCC compiler")
+		IF(CMAKE_COMPILER_IS_GNUCXX)
+			SET(CUDA_PROPAGATE_HOST_FLAGS OFF)
+			SET(CUDA_HOST_COMPILATION_CPP ON)
+			STRING(REGEX MATCHALL "-D[^ ]*" FLAGS_FOR_NVCC "${CMAKE_CXX_FLAGS}")
+			#SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};${FLAGS_FOR_NVCC};-std=c++11")
+			LIST(APPEND CUDA_NVCC_FLAGS "${FLAGS_FOR_NVCC}")
+			LIST(APPEND CUDA_NVCC_FLAGS "-std=c++11")
+			if (CMAKE_POSITION_INDEPENDENT_CODE)
+				# sometimes this setting isn't propagated to NVCC, which then causes the
+				# compile to fail.  So make sure it's propagated.
+				list(APPEND CUDA_NVCC_FLAGS "-Xcompiler -fPIC")
+			endif()
+		ENDIF()
+	ELSE()
+		MESSAGE( STATUS "Using GCC compiler")
+	ENDIF()
+else()
+	MESSAGE( STATUS "Using GCC compiler")
 endif()
 
 # Add Tbb
@@ -229,9 +256,11 @@ endif()
 
 if(AV_BUILD_SUITESPARSE)
 set(SUITESPARSE_TARGET suitesparse)
-set(SUITESPARSE_INTERNAL_MAKE_CMD LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${BUILD_DIR}/lapack_build/${CMAKE_INSTALL_LIBDIR} make BLAS="${BLAS_LIBRARIES}" LAPACK="${LAPACK_LIBRARIES}")
+set(SUITESPARSE_INTERNAL_MAKE_CMD LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:${BUILD_DIR}/lapack_build/${CMAKE_INSTALL_LIBDIR}:${CUDA_TOOLKIT_ROOT_DIR}/lib64 make BLAS="${BLAS_LIBRARIES}" LAPACK="${LAPACK_LIBRARIES}")
 ExternalProject_Add(${SUITESPARSE_TARGET}
-       URL https://github.com/jluttine/suitesparse/archive/v4.5.6.tar.gz
+       # URL https://github.com/jluttine/suitesparse/archive/v4.5.6.tar.gz
+       # URL http://faculty.cse.tamu.edu/davis/SuiteSparse/SuiteSparse-5.3.0.tar.gz
+       URL https://github.com/jluttine/suitesparse/archive/v5.3.0.tar.gz
        PREFIX ${BUILD_DIR}
        BUILD_IN_SOURCE 0
        BUILD_ALWAYS 0
@@ -244,7 +273,7 @@ ExternalProject_Add(${SUITESPARSE_TARGET}
        INSTALL_COMMAND cd <BINARY_DIR> && ${SUITESPARSE_INTERNAL_MAKE_CMD} install INSTALL=<INSTALL_DIR>
        DEPENDS ${LAPACK_TARGET}
        )
-set(SUITESPARSE_CMAKE_FLAGS ${LAPACK_CMAKE_FLAGS} -DSUITESPARSE_INCLUDE_DIR_HINTS=${BUILD_DIR}/suitesparse_build/include -DSUITESPARSE_LIBRARY_DIR_HINTS=${BUILD_DIR}/suitesparse_build/lib)
+set(SUITESPARSE_CMAKE_FLAGS ${LAPACK_CMAKE_FLAGS} ${CUDA_NVCC_FLAGS} ${CUDA_CMAKE_FLAGS} -DSUITESPARSE_INCLUDE_DIR_HINTS=${BUILD_DIR}/suitesparse_build/include -DSUITESPARSE_LIBRARY_DIR_HINTS=${BUILD_DIR}/suitesparse_build/lib)
 endif()
 
 # Add ceres-solver: A Nonlinear Least Squares Minimizer
